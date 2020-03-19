@@ -1,154 +1,117 @@
-// A local search script with the help of
-// [hexo-generator-search](https://github.com/PaicHyperionDev/hexo-generator-search)
-// Copyright (C) 2015
-// Joseph Pan <http://github.com/wzpan>
-// Shuhao Mao <http://github.com/maoshuhao>
-// This library is free software; you can redistribute it and/or modify
-// it under the terms of the GNU Lesser General Public License as
-// published by the Free Software Foundation; either version 2.1 of the
-// License, or (at your option) any later version.
-//
-// This library is distributed in the hope that it will be useful, but
-// WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-// Lesser General Public License for more details.
-//
-// You should have received a copy of the GNU Lesser General Public
-// License along with this library; if not, write to the Free Software
-// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
-// 02110-1301 USA
-//
-// Modified by:
-// Pieter Robberechts <http://github.com/probberechts>
-
-/*exported searchFunc*/
-var searchFunc = function(path, searchId, contentId) {
-
-  function stripHtml(html) {
-    html = html.replace(/<style([\s\S]*?)<\/style>/gi, "");
-    html = html.replace(/<script([\s\S]*?)<\/script>/gi, "");
-    html = html.replace(/<figure([\s\S]*?)<\/figure>/gi, "");
-    html = html.replace(/<\/div>/ig, "\n");
-    html = html.replace(/<\/li>/ig, "\n");
-    html = html.replace(/<li>/ig, "  *  ");
-    html = html.replace(/<\/ul>/ig, "\n");
-    html = html.replace(/<\/p>/ig, "\n");
-    html = html.replace(/<br\s*[\/]?>/gi, "\n");
-    html = html.replace(/<[^>]+>/ig, "");
-    return html;
-  }
-
-  function getAllCombinations(keywords) {
-    var i, j, result = [];
-
-    for (i = 0; i < keywords.length; i++) {
-        for (j = i + 1; j < keywords.length + 1; j++) {
-            result.push(keywords.slice(i, j).join(" "));
-        }
-    }
-    return result;
-  }
-
+let searchFunc = function (path, search_id, content_id) {
+  // 0x00. environment initialization
+  'use strict';
+  let $input = document.getElementById(search_id);
+  let $resultContent = document.getElementById(content_id);
+  $resultContent.innerHTML = "<ul><span class='local-search-empty'>首次搜索，正在载入索引文件，请稍后……<span></ul>";
   $.ajax({
+    // 0x01. load xml file
     url: path,
     dataType: "xml",
-    success: function(xmlResponse) {
-      // get the contents from search data
-      var datas = $("entry", xmlResponse).map(function() {
+    success: function (xmlResponse) {
+      // 0x02. parse xml file
+      let datas = $("entry", xmlResponse).map(function () {
         return {
           title: $("title", this).text(),
           content: $("content", this).text(),
-          url: $("link", this).attr("href")
+          url: $("url", this).text()
         };
       }).get();
+      $resultContent.innerHTML = "";
 
-      var $input = document.getElementById(searchId);
-      if (!$input) { return; }
-      var $resultContent = document.getElementById(contentId);
-
-      $input.addEventListener("input", function(){
-        var resultList = [];
-        var keywords = getAllCombinations(this.value.trim().toLowerCase().split(" "))
-          .sort(function(a,b) { return b.split(" ").length - a.split(" ").length; });
+      $input.addEventListener('input', function () {
+        // 0x03. parse query to keywords list
+        let str = '<ul class=\"search-result-list\">';
+        let keywords = this.value.trim().toLowerCase().split(/[\s\-]+/);
         $resultContent.innerHTML = "";
         if (this.value.trim().length <= 0) {
           return;
         }
-        // perform local searching
-        datas.forEach(function(data) {
-          var matches = 0;
-          if (!data.title || data.title.trim() === "") {
+        // 0x04. perform local searching
+        datas.forEach(function (data) {
+          let isMatch = true;
+          let content_index = [];
+          if (!data.title || data.title.trim() === '') {
             data.title = "Untitled";
           }
-          var dataTitle = data.title.trim().toLowerCase();
-          var dataContent = stripHtml(data.content.trim());
-          var dataUrl = data.url;
-          var indexTitle = -1;
-          var indexContent = -1;
-          var firstOccur = -1;
+          let orig_data_title = data.title.trim();
+          let data_title = orig_data_title.toLowerCase();
+          let orig_data_content = data.content.trim().replace(/<[^>]+>/g, "");
+          let data_content = orig_data_content.toLowerCase();
+          let data_url = data.url;
+          let index_title = -1;
+          let index_content = -1;
+          let first_occur = -1;
           // only match artiles with not empty contents
-          if (dataContent !== "") {
-            keywords.forEach(function(keyword) {
-              indexTitle = dataTitle.indexOf(keyword);
-              indexContent = dataContent.indexOf(keyword);
+          if (data_content !== '') {
+            keywords.forEach(function (keyword, i) {
+              index_title = data_title.indexOf(keyword);
+              index_content = data_content.indexOf(keyword);
 
-              if( indexTitle >= 0 || indexContent >= 0 ){
-                matches += 1;
-                if (indexContent < 0) {
-                  indexContent = 0;
+              if (index_title < 0 && index_content < 0) {
+                isMatch = false;
+              } else {
+                if (index_content < 0) {
+                  index_content = 0;
                 }
-                if (firstOccur < 0) {
-                  firstOccur = indexContent;
+                if (i == 0) {
+                  first_occur = index_content;
                 }
+                // content_index.push({index_content:index_content, keyword_len:keyword_len});
               }
             });
+          } else {
+            isMatch = false;
           }
-          // show search results
-          if (matches > 0) {
-            var searchResult = {};
-            searchResult.rank = matches;
-            searchResult.str = "<li><a href='"+ dataUrl +"' class='search-result-title'>"+ dataTitle +"</a>";
-            if (firstOccur >= 0) {
+          // 0x05. show search results
+          if (isMatch) {
+            str += "<li><a href='" + data_url + "' class='search-result-title' target='_blank'>" + orig_data_title + "</a>";
+            let content = orig_data_content;
+            if (first_occur >= 0) {
               // cut out 100 characters
-              var start = firstOccur - 20;
-              var end = firstOccur + 80;
+              let start = first_occur - 20;
+              let end = first_occur + 80;
 
-              if(start < 0){
+              if (start < 0) {
                 start = 0;
               }
 
-              if(start == 0){
+              if (start == 0) {
                 end = 100;
               }
 
-              if(end > dataContent.length){
-                end = dataContent.length;
+              if (end > content.length) {
+                end = content.length;
               }
 
-              var matchContent = dataContent.substr(start, end);
+              let match_content = content.substr(start, end);
 
               // highlight all keywords
-              var regS = new RegExp(keywords.join("|"), "gi");
-              matchContent = matchContent.replace(regS, function(keyword) {
-                return "<em class=\"search-keyword\">"+keyword+"</em>";
+              keywords.forEach(function (keyword) {
+                let regS = new RegExp(keyword, "gi");
+                match_content = match_content.replace(regS, "<em class=\"search-keyword\">" + keyword + "</em>");
               });
 
-              searchResult.str += "<p class=\"search-result\">" + matchContent +"...</p>";
+              str += "<p class=\"search-result\">" + match_content + "...</p>"
             }
-            searchResult.str += "</li>";
-            resultList.push(searchResult);
+            str += "</li>";
           }
         });
-        resultList.sort(function(a, b) {
-            return b.rank - a.rank;
-        });
-        var result ="<ul class=\"search-result-list\">";
-        for (var i = 0; i < resultList.length; i++) {
-          result += resultList[i].str;
+        str += "</ul>";
+        if (str.indexOf('<li>') === -1) {
+          return $resultContent.innerHTML = "<ul><span class='local-search-empty'>没有找到内容，请尝试更换检索词。<span></ul>";
         }
-        result += "</ul>";
-        $resultContent.innerHTML = result;
+        $resultContent.innerHTML = str;
       });
     }
   });
-};
+  $(document).on('click', '#local-search-close', function() {
+    $('#local-search-input').val('');
+    $('local-search-result').html('');
+  });
+}
+
+let getSearchFile = function(){
+    let path = "/search.xml";
+    searchFunc(path, 'local-search-input', 'local-search-result');
+}
